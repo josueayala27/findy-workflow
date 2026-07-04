@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Nitro
+.nitro/
+.output/
+.cache/
+
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# TypeScript
+*.tsbuildinfo
