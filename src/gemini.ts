@@ -4,7 +4,7 @@ import {
   createPartFromUri,
   createUserContent,
 } from "@google/genai";
-import type { RawApifyItem, VideoAnalysis } from "./types";
+import { SENTIMENTS, type RawApifyItem, type Sentiment, type VideoAnalysis } from "./types";
 
 const MODEL = "gemini-2.5-flash";
 const FILE_POLL_INTERVAL_MS = 2000;
@@ -19,8 +19,8 @@ const ANALYSIS_SCHEMA = {
   properties: {
     sentiment: {
       type: Type.STRING,
-      description:
-        "One-word overall feeling conveyed by the video, e.g. 'happy', 'excited', 'relaxing', 'nostalgic'.",
+      enum: SENTIMENTS as unknown as string[],
+      description: "The overall feeling conveyed by the video. Must be one of the enum values.",
     },
     sentimentScore: {
       type: Type.NUMBER,
@@ -113,5 +113,12 @@ export async function analyzeVideo(
 
   const parsed = JSON.parse(text) as Omit<VideoAnalysis, "videoId">;
 
-  return { videoId: item.id, ...parsed };
+  return { videoId: item.id, ...parsed, sentiment: normalizeSentiment(parsed.sentiment) };
+}
+
+function normalizeSentiment(value: string): Sentiment {
+  const normalized = value.trim().toLowerCase();
+  return (SENTIMENTS as readonly string[]).includes(normalized)
+    ? (normalized as Sentiment)
+    : "neutral";
 }

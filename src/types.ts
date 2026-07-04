@@ -64,9 +64,22 @@ export interface RawApifyItem {
   video?: RawApifyVideoAsset;
 }
 
+export const SENTIMENTS = [
+  "happy",
+  "excited",
+  "relaxing",
+  "nostalgic",
+  "neutral",
+  "disappointed",
+  "sad",
+  "angry",
+] as const;
+
+export type Sentiment = (typeof SENTIMENTS)[number];
+
 export interface VideoAnalysis {
   videoId: string;
-  sentiment: string;
+  sentiment: Sentiment;
   sentimentScore: number;
   transcription: string;
   location: string | null;
