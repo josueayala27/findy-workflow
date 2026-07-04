@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
 import { analyzeVideo } from "./src/gemini";
+import { geocodeLocation } from "./src/geocode";
 import type { ScrapeInput, VideoAnalysis } from "./src/types";
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
@@ -56,6 +57,12 @@ app.post(
         }
         return analyzeVideo(item, { apiKey });
       });
+
+      if (analysis.location) {
+        analysis.coordinates = await context.run(`geocode-${item.id}`, () =>
+          geocodeLocation(analysis.location!),
+        );
+      }
 
       analyses.push(analysis);
     }

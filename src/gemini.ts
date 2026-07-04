@@ -111,9 +111,14 @@ export async function analyzeVideo(
     throw new Error(`Gemini returned no output for video ${item.id}`);
   }
 
-  const parsed = JSON.parse(text) as Omit<VideoAnalysis, "videoId">;
+  const parsed = JSON.parse(text) as Omit<VideoAnalysis, "videoId" | "coordinates">;
 
-  return { videoId: item.id, ...parsed, sentiment: normalizeSentiment(parsed.sentiment) };
+  return {
+    videoId: item.id,
+    ...parsed,
+    sentiment: normalizeSentiment(parsed.sentiment),
+    coordinates: null,
+  };
 }
 
 function normalizeSentiment(value: string): Sentiment {

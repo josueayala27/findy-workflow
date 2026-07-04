@@ -83,5 +83,6 @@ export interface VideoAnalysis {
   sentimentScore: number;
   transcription: string;
   location: string | null;
+  coordinates: { lat: number; lng: number } | null;
   summary: string;
 }
