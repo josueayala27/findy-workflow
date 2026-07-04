@@ -35,7 +35,10 @@ const ANALYSIS_SCHEMA = {
       type: Type.STRING,
       nullable: true,
       description:
-        "The specific place/location mentioned or shown in the video (e.g. a restaurant, beach, city). Null if none is identifiable.",
+        "The specific, named place shown or mentioned in the video (e.g. a beach, restaurant, town, or landmark name), such as 'Playa Los Cóbanos' or 'Playa El Tunco'. " +
+        "Read both the spoken audio and any on-screen text overlays for this — many videos have no speech but show the place name as text on screen. " +
+        "Never return just 'El Salvador' or a generic description like 'a beach in El Salvador' or 'various beaches' — those are not specific places. " +
+        "Null if no specific named place can be identified from either audio or on-screen text.",
     },
     summary: {
       type: Type.STRING,
