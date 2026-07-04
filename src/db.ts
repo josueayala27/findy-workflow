@@ -40,36 +40,43 @@ export interface UpsertPlaceMentionInput {
 export async function upsertPlaceMention(sql: Sql, input: UpsertPlaceMentionInput): Promise<void> {
   const { canonicalName, category, item, analysis } = input;
 
+  const inserted = (await sql`
+    INSERT INTO places (canonical_name, location_text, lat, lng, category)
+    VALUES (${canonicalName}, ${analysis.location}, ${analysis.coordinates?.lat ?? null}, ${analysis.coordinates?.lng ?? null}, ${category ?? null})
+    ON CONFLICT (canonical_name) DO NOTHING
+    RETURNING id
+  `) as Array<{ id: string }>;
+
+  const placeId =
+    inserted[0]?.id ??
+    ((await sql`SELECT id FROM places WHERE canonical_name = ${canonicalName}`) as Array<{ id: string }>)[0].id;
+
+  const likes = item.likes ?? 0;
+  const comments = item.comments ?? 0;
+  const shares = item.shares ?? 0;
+  const bookmarks = item.bookmarks ?? 0;
+
+  const insertedMention = (await sql`
+    INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text)
+    VALUES (${placeId}, ${item.id}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${analysis.location})
+    ON CONFLICT (video_id) DO NOTHING
+    RETURNING id
+  `) as Array<{ id: string }>;
+
+  if (insertedMention.length === 0) {
+    return;
+  }
+
   await sql`
-    WITH upsert_place AS (
-      INSERT INTO places (canonical_name, location_text, lat, lng, category)
-      VALUES (${canonicalName}, ${analysis.location}, ${analysis.coordinates?.lat ?? null}, ${analysis.coordinates?.lng ?? null}, ${category ?? null})
-      ON CONFLICT (canonical_name) DO NOTHING
-      RETURNING id
-    ),
-    place_row AS (
-      SELECT id FROM upsert_place
-      UNION ALL
-      SELECT id FROM places WHERE canonical_name = ${canonicalName}
-      LIMIT 1
-    ),
-    inserted_mention AS (
-      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text)
-      SELECT id, ${item.id}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${item.likes ?? 0}, ${item.comments ?? 0}, ${item.shares ?? 0}, ${item.bookmarks ?? 0}, ${analysis.summary}, ${analysis.location}
-      FROM place_row
-      ON CONFLICT (video_id) DO NOTHING
-      RETURNING place_id, likes, comments, shares, bookmarks
-    )
-    UPDATE places p
+    UPDATE places
     SET
       mention_count = mention_count + 1,
-      total_likes = total_likes + im.likes,
-      total_comments = total_comments + im.comments,
-      total_shares = total_shares + im.shares,
-      total_bookmarks = total_bookmarks + im.bookmarks,
+      total_likes = total_likes + ${likes},
+      total_comments = total_comments + ${comments},
+      total_shares = total_shares + ${shares},
+      total_bookmarks = total_bookmarks + ${bookmarks},
       updated_at = now()
-    FROM inserted_mention im
-    WHERE p.id = im.place_id
+    WHERE id = ${placeId}
   `;
 }
 

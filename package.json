@@ -6,7 +6,8 @@
   },
   "devDependencies": {
     "hono": "^4.12.27",
-    "nitro": "latest"
+    "nitro": "latest",
+    "wrangler": "^4.107.0"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
