@@ -5,7 +5,11 @@
     "dev": "nitro dev"
   },
   "devDependencies": {
-    "hono": "link:@upstash/workflow/hono",
+    "hono": "^4.12.27",
     "nitro": "latest"
+  },
+  "dependencies": {
+    "@google/genai": "^2.10.0",
+    "@upstash/workflow": "^1.3.2"
   }
 }

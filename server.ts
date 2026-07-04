@@ -1,18 +1,51 @@
-import { Hono } from "hono"
-import { serve } from "@upstash/workflow/hono"
+import { Hono } from "hono";
+import { ApifyError, runApifyScraper } from "./src/apify";
+import type { ScrapeInput } from "./src/types";
+import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
-const app = new Hono()
+interface Bindings extends WorkflowBindings {
+  APIFY_TOKEN: string;
+}
 
-app.post("/workflow",
-  serve(async (context) => {
-    await context.run("initial-step", () => {
-      console.log("initial step ran")
-    })
+const app = new Hono<{ Bindings: Bindings }>();
 
-    await context.run("second-step", () => {
-      console.log("second step ran")
-    })
-  })
-)
+app.post(
+  "/workflow",
+  serve<Partial<ScrapeInput>, Bindings>(async (context) => {
+    const body = context.requestPayload;
+    if (!body?.query || !body?.category) {
+      throw new Error("query and category are required");
+    }
 
-export default app
+    const input: ScrapeInput = {
+      query: body.query,
+      category: body.category,
+      location: body.location,
+      resultsLimit: body.resultsLimit,
+    };
+
+    const result = await context.run("scrape-tiktok", async () => {
+      const token = context.env.APIFY_TOKEN;
+      if (!token) {
+        throw new Error("APIFY_TOKEN is not configured");
+      }
+
+      try {
+        const items = await runApifyScraper(input, { token });
+        return { count: items.length, items };
+      } catch (error) {
+        if (error instanceof ApifyError) {
+          throw new Error(error.message);
+        }
+        throw new Error("Unexpected error running Apify scraper");
+      }
+    });
+
+    await context.run("log-result", () => {
+      console.log(`Scraped ${result.count} items`);
+      return result.count;
+    });
+  }),
+);
+
+export default app;
