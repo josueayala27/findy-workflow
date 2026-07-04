@@ -1,13 +1,16 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
+import { getPlaceNames, getSqlClient, listPlacesWithScores, upsertPlaceMention } from "./src/db";
 import { analyzeVideo } from "./src/gemini";
 import { geocodeLocation } from "./src/geocode";
+import { canonicalizePlace, computeScores } from "./src/places";
 import type { ScrapeInput, VideoAnalysis } from "./src/types";
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
 interface Bindings extends WorkflowBindings {
   APIFY_TOKEN: string;
   GEMINI_API_KEY: string;
+  DATABASE_URL: string;
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -62,6 +65,22 @@ app.post(
         analysis.coordinates = await context.run(`geocode-${item.id}`, () =>
           geocodeLocation(analysis.location!),
         );
+
+        await context.run(`persist-place-${item.id}`, async () => {
+          const databaseUrl = context.env.DATABASE_URL;
+          const apiKey = context.env.GEMINI_API_KEY;
+          if (!databaseUrl) {
+            throw new Error("DATABASE_URL is not configured");
+          }
+          if (!apiKey) {
+            throw new Error("GEMINI_API_KEY is not configured");
+          }
+
+          const sql = getSqlClient(databaseUrl);
+          const existingPlaces = await getPlaceNames(sql);
+          const canonicalName = await canonicalizePlace(analysis, existingPlaces, { apiKey });
+          await upsertPlaceMention(sql, { canonicalName, category: input.category, item, analysis });
+        });
       }
 
       analyses.push(analysis);
@@ -70,5 +89,16 @@ app.post(
     return { count: result.count, analyses };
   }),
 );
+
+app.get("/places", async (c) => {
+  const databaseUrl = c.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return c.json({ error: "DATABASE_URL is not configured" }, 500);
+  }
+
+  const sql = getSqlClient(databaseUrl);
+  const rows = await listPlacesWithScores(sql);
+  return c.json(computeScores(rows));
+});
 
 export default app;

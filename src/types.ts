@@ -86,3 +86,27 @@ export interface VideoAnalysis {
   coordinates: { lat: number; lng: number } | null;
   summary: string;
 }
+
+export interface Engagement {
+  likes: number;
+  comments: number;
+  shares: number;
+  bookmarks: number;
+}
+
+export interface PlaceSentiment {
+  videoId: string;
+  sentiment: Sentiment;
+  sentimentScore: number;
+}
+
+export interface PlaceSummary {
+  placeId: string;
+  name: string;
+  location: string | null;
+  coordinates: { lat: number; lng: number } | null;
+  score: number;
+  mentionCount: number;
+  engagement: Engagement;
+  sentiments: PlaceSentiment[];
+}
