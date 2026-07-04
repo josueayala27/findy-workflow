@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
-import type { ScrapeInput } from "./src/types";
+import { analyzeVideo } from "./src/gemini";
+import type { ScrapeInput, VideoAnalysis } from "./src/types";
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
 interface Bindings extends WorkflowBindings {
   APIFY_TOKEN: string;
+  GEMINI_API_KEY: string;
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -41,10 +43,24 @@ app.post(
       }
     });
 
-    await context.run("log-result", () => {
-      console.log(`Scraped ${result.count} items`);
-      return result.count;
-    });
+    const analyses: VideoAnalysis[] = [];
+    for (const item of result.items) {
+      if (!item.id || !item.video?.url) {
+        continue;
+      }
+
+      const analysis = await context.run(`process-video-${item.id}`, async () => {
+        const apiKey = context.env.GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error("GEMINI_API_KEY is not configured");
+        }
+        return analyzeVideo(item, { apiKey });
+      });
+
+      analyses.push(analysis);
+    }
+
+    return { count: result.count, analyses };
   }),
 );
 

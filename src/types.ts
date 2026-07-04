@@ -33,29 +33,42 @@ export interface ApifyActorInput {
   sortType: ApifySortType;
 }
 
-export interface RawApifyComment {
-  text?: string;
-  diggCount?: number;
-}
-
-export interface RawApifyAuthor {
+export interface RawApifyChannel {
+  id?: string;
   name?: string;
-  nickName?: string;
+  username?: string;
+  followers?: number;
 }
 
-export interface RawApifyVideoMeta {
-  coverUrl?: string;
-  originalCoverUrl?: string;
+export interface RawApifyVideoAsset {
+  width?: number;
+  height?: number;
+  duration?: number;
+  url?: string;
+  cover?: string;
+  thumbnail?: string;
 }
 
 export interface RawApifyItem {
   id?: string;
-  text?: string;
-  webVideoUrl?: string;
-  diggCount?: number;
-  playCount?: number;
-  commentCount?: number;
-  comments?: RawApifyComment[];
-  videoMeta?: RawApifyVideoMeta;
-  authorMeta?: RawApifyAuthor;
+  title?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  bookmarks?: number;
+  hashtags?: string[];
+  channel?: RawApifyChannel;
+  uploadedAt?: number;
+  uploadedAtFormatted?: string;
+  video?: RawApifyVideoAsset;
+}
+
+export interface VideoAnalysis {
+  videoId: string;
+  sentiment: string;
+  sentimentScore: number;
+  transcription: string;
+  location: string | null;
+  summary: string;
 }
