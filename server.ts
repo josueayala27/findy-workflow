@@ -1,19 +1,9 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
-import {
-  getPlaceNames,
-  getPlaceWithMentions,
-  getSqlClient,
-  listPlacesWithScores,
-  upsertPlaceMentions,
-  type ResolvedPlaceMention,
-} from "./src/db";
-import { analyzeVideo } from "./src/gemini";
-import { geocodeLocation } from "./src/geocode";
-import { resolveLocations } from "./src/location";
-import { canonicalizePlaces, computeScores } from "./src/places";
-import { upsertSearchDoc } from "./src/search";
-import type { LocationMention, ScrapeInput, VideoAnalysis } from "./src/types";
+import { getSqlClient, listPlacesWithScores } from "./src/db";
+import { processApifyItem } from "./src/ingest";
+import { computeScores } from "./src/places";
+import type { ScrapeInput, VideoAnalysis } from "./src/types";
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
 interface Bindings extends WorkflowBindings {
@@ -72,96 +62,14 @@ app.post(
           throw new Error("DATABASE_URL is not configured");
         }
 
-        const videoAnalysis = await analyzeVideo(item, { apiKey });
-
-        if (videoAnalysis.locations.length === 0) {
-          return videoAnalysis;
-        }
-
-        const resolvedNames = await resolveLocations(
-          videoAnalysis.locations.map((location) => location.name),
-          { apiKey },
-        );
-
-        const resolved = videoAnalysis.locations
-          .map((location, index) => ({ name: resolvedNames[index], coordinates: location.coordinates }))
-          .filter((location): location is LocationMention => location.name !== null);
-
-        if (resolved.length === 0) {
-          videoAnalysis.locations = [];
-          return videoAnalysis;
-        }
-
-        const geocoded: LocationMention[] = [];
-        for (const location of resolved) {
-          const coordinates = await geocodeLocation(location.name);
-          geocoded.push({ name: location.name, coordinates });
-        }
-        videoAnalysis.locations = geocoded;
-
         const sql = getSqlClient(databaseUrl);
-        const existingPlaces = await getPlaceNames(sql);
-        const canonicalNames = await canonicalizePlaces(geocoded, videoAnalysis.summary, existingPlaces, {
-          apiKey,
-        });
-∑
-      const deduped = new Map<string, ResolvedPlaceMention>();
-      geocoded.forEach((location, index) => {
-        const canonicalName = canonicalNames[index];
-        if (!deduped.has(canonicalName)) {
-          deduped.set(canonicalName, {
-            canonicalName,
-            locationText: location.name,
-            coordinates: location.coordinates,
-          });
-        }
+        return processApifyItem(sql, item, { category: input.category, apiKey });
       });
 
-      const touchedPlaceIds = await upsertPlaceMentions(sql, {
-        category: input.category,
-        item,
-        analysis: videoAnalysis,
-        places: Array.from(deduped.values()),
-      });
-
-      for (const placeId of touchedPlaceIds) {
-        const place = await getPlaceWithMentions(sql, placeId);
-        if (!place) {
-          continue;
-        }
-
-        await upsertSearchDoc({
-          id: place.id,
-          content: {
-            name: place.canonicalName,
-            locationText: place.locationText,
-            summaries: place.summaries,
-            transcripts: place.transcripts,
-          },
-          metadata: {
-            coordinates: place.lat !== null && place.lng !== null ? { lat: place.lat, lng: place.lng } : null,
-            category: place.category,
-            mentionCount: place.mentionCount,
-            engagement: {
-              likes: place.totalLikes,
-              comments: place.totalComments,
-              shares: place.totalShares,
-              bookmarks: place.totalBookmarks,
-            },
-            sentiments: place.sentiments,
-            videoIds: place.sentiments.map((sentiment) => sentiment.videoId),
-            suspicious: place.suspicious,
-          },
-        });
-      }
-
-      return videoAnalysis;
-    });
-
-analyses.push(analysis);
+      analyses.push(analysis);
     }
 
-return { count: result.count, analyses };
+    return { count: result.count, analyses };
   }),
 );
 
