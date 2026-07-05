@@ -1,13 +1,21 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { isWithinElSalvador } from "./geocode";
+import * as schema from "./schema";
 import type { Coordinates, RawApifyItem, VideoAnalysis } from "./types";
 
 export type Sql = NeonQueryFunction<false, false>;
 export type MentionSource = "tiktok" | "instagram" | "web";
 export type VerificationStatus = "verified" | "unverified" | "rejected";
+export type Db = NeonHttpDatabase<typeof schema>;
 
 export function getSqlClient(databaseUrl: string): Sql {
   return neon(databaseUrl);
+}
+
+/** Drizzle client for new queries. Existing tagged-SQL functions in this file are unaffected. */
+export function getDrizzleClient(databaseUrl: string): Db {
+  return drizzle(neon(databaseUrl), { schema });
 }
 
 export interface ExistingPlace {
