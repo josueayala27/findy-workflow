@@ -48,16 +48,18 @@ export interface UpsertPlaceMentionsInput {
  * across `places` so a video mentioning several places doesn't credit each one with
  * the full engagement of the video.
  */
-export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsInput): Promise<void> {
+export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsInput): Promise<string[]> {
   const { category, item, analysis, places } = input;
   if (places.length === 0) {
-    return;
+    return [];
   }
 
   const likes = Math.round((item.likes ?? 0) / places.length);
   const comments = Math.round((item.comments ?? 0) / places.length);
   const shares = Math.round((item.shares ?? 0) / places.length);
   const bookmarks = Math.round((item.bookmarks ?? 0) / places.length);
+
+  const touchedPlaceIds = new Set<string>();
 
   for (const place of places) {
     const inserted = (await sql`
@@ -93,7 +95,11 @@ export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsIn
         updated_at = now()
       WHERE id = ${placeId}
     `;
+
+    touchedPlaceIds.add(placeId);
   }
+
+  return Array.from(touchedPlaceIds);
 }
 
 export interface PlaceRow {
@@ -108,6 +114,83 @@ export interface PlaceRow {
   totalShares: number;
   totalBookmarks: number;
   sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
+}
+
+export interface PlaceWithMentions extends PlaceRow {
+  category: string | null;
+  summaries: string[];
+}
+
+/**
+ * Re-derives a place's full current state (across all videos that mention it) straight
+ * from Postgres, so a search-index doc can be rebuilt as a complete, idempotent snapshot
+ * rather than an incremental patch.
+ */
+export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<PlaceWithMentions | null> {
+  const rows = (await sql`
+    SELECT
+      p.id,
+      p.canonical_name,
+      p.location_text,
+      p.lat,
+      p.lng,
+      p.category,
+      p.mention_count,
+      p.total_likes,
+      p.total_comments,
+      p.total_shares,
+      p.total_bookmarks,
+      COALESCE(
+        json_agg(
+          json_build_object('videoId', m.video_id, 'sentiment', m.sentiment, 'sentimentScore', m.sentiment_score)
+          ORDER BY m.created_at
+        ) FILTER (WHERE m.id IS NOT NULL),
+        '[]'
+      ) AS sentiments,
+      COALESCE(
+        json_agg(m.summary ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL),
+        '[]'
+      ) AS summaries
+    FROM places p
+    LEFT JOIN place_mentions m ON m.place_id = p.id
+    WHERE p.id = ${placeId}
+    GROUP BY p.id
+  `) as Array<{
+    id: string;
+    canonical_name: string;
+    location_text: string | null;
+    lat: number | null;
+    lng: number | null;
+    category: string | null;
+    mention_count: number;
+    total_likes: number;
+    total_comments: number;
+    total_shares: number;
+    total_bookmarks: number;
+    sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
+    summaries: string[];
+  }>;
+
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    canonicalName: row.canonical_name,
+    locationText: row.location_text,
+    lat: row.lat,
+    lng: row.lng,
+    category: row.category,
+    mentionCount: row.mention_count,
+    totalLikes: row.total_likes,
+    totalComments: row.total_comments,
+    totalShares: row.total_shares,
+    totalBookmarks: row.total_bookmarks,
+    sentiments: row.sentiments,
+    summaries: row.summaries,
+  };
 }
 
 export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
