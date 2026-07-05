@@ -149,6 +149,7 @@ app.post(
               },
               sentiments: place.sentiments,
               videoIds: place.sentiments.map((sentiment) => sentiment.videoId),
+              suspicious: place.suspicious,
             },
           });
         }

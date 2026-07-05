@@ -110,6 +110,7 @@ export function computeScores(rows: PlaceRow[]): PlaceSummary[] {
         sentiment: sentiment.sentiment as VideoAnalysis["sentiment"],
         sentimentScore: Number(sentiment.sentimentScore),
       })),
+      suspicious: row.suspicious,
     }))
     .sort((a, b) => b.score - a.score);
 }
