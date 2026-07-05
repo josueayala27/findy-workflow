@@ -25,9 +25,14 @@ async function main() {
 
   const databaseUrl = process.env.DATABASE_URL;
   const geminiApiKey = process.env.GEMINI_API_KEY;
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+  const openRouterModel = process.env.OPENROUTER_MODEL;
+  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
   const openaiApiKey = process.env.OPENAI_API_KEY;
+
   if (!databaseUrl) throw new Error("DATABASE_URL is not configured");
-  if (!geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
+  if (!openRouterApiKey) throw new Error("OPENROUTER_API_KEY is not configured");
+  if (provider === "gemini" && !geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
   if (provider === "openai" && !openaiApiKey) throw new Error("OPENAI_API_KEY is not configured");
 
   const raw = JSON.parse(readFileSync(file, "utf8"));
@@ -48,9 +53,14 @@ async function main() {
     try {
       await processApifyItem(sql, item, {
         category,
-        apiKey: geminiApiKey,
+        geminiApiKey: geminiApiKey ?? "",
+        openRouterApiKey,
+        openRouterModel,
+        googleApiKey,
         analyzeVideo:
-          provider === "openai" ? (videoItem) => analyzeVideoWithOpenAI(videoItem, { apiKey: openaiApiKey! }) : undefined,
+          provider === "openai"
+            ? (videoItem) => analyzeVideoWithOpenAI(videoItem, { apiKey: openaiApiKey! })
+            : undefined,
       });
       processed++;
       console.log(`[${processed + skipped + failed}/${items.length}] ok: ${item.id}`);

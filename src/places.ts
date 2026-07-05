@@ -1,8 +1,6 @@
-import { GoogleGenAI, Type } from "@google/genai/web";
 import type { ExistingPlace, PlaceRow } from "./db";
+import { createLlmClient, generateJson } from "./llm";
 import type { LocationMention, PlaceSummary, VideoAnalysis } from "./types";
-
-const MODEL = "gemini-2.5-flash";
 
 const LIKE_WEIGHT = 1;
 const COMMENT_WEIGHT = 2;
@@ -11,26 +9,27 @@ const BOOKMARK_WEIGHT = 4;
 
 export interface CanonicalizePlaceOptions {
   apiKey: string;
+  model?: string;
 }
 
 const CANONICALIZE_SCHEMA = {
-  type: Type.ARRAY,
+  type: "array",
   items: {
-    type: Type.OBJECT,
+    type: "object",
     properties: {
       matchedExistingName: {
-        type: Type.STRING,
-        nullable: true,
+        type: ["string", "null"],
         description:
           "If this place is the same real-world place as one already in the known list, or as another place mentioned in this same video, return that place's name exactly as given. Otherwise null.",
       },
       canonicalName: {
-        type: Type.STRING,
+        type: "string",
         description:
           "A normalized, human-readable name for this place (e.g. 'Playa Los Cóbanos'). If matchedExistingName is set, this must equal it.",
       },
     },
     required: ["matchedExistingName", "canonicalName"],
+    additionalProperties: false,
   },
 };
 
@@ -49,7 +48,7 @@ export async function canonicalizePlaces(
     return [];
   }
 
-  const ai = new GoogleGenAI({ apiKey: options.apiKey });
+  const client = createLlmClient(options);
 
   const prompt = [
     "A video mentions these places:",
@@ -61,21 +60,13 @@ export async function canonicalizePlaces(
     "For each mentioned place, in the same order, decide whether it is the same real-world place as one already in the known list, or as another place mentioned earlier in this same list (accounting for spelling, phrasing, or language differences), or if it's a new distinct place.",
   ].join("\n");
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: CANONICALIZE_SCHEMA,
-    },
-  });
+  const parsed = await generateJson<Array<{ matchedExistingName: string | null; canonicalName: string }>>(
+    client,
+    prompt,
+    CANONICALIZE_SCHEMA,
+    { model: options.model, schemaName: "canonicalize_places" },
+  );
 
-  const text = response.text;
-  if (!text) {
-    throw new Error("Gemini returned no output for place canonicalization");
-  }
-
-  const parsed = JSON.parse(text) as Array<{ matchedExistingName: string | null; canonicalName: string }>;
   return parsed.map((entry) => entry.matchedExistingName ?? entry.canonicalName);
 }
 

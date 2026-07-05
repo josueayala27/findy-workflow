@@ -1,6 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai/web";
-
-const MODEL = "gemini-2.5-flash";
+import { createLlmClient, generateJson } from "./llm";
 
 export const EL_SALVADOR_DEPARTMENTS = [
   "Ahuachapán",
@@ -42,6 +40,7 @@ const GENERIC_WORDS = [
 
 export interface ResolveLocationOptions {
   apiKey: string;
+  model?: string;
 }
 
 function normalize(text: string): string {
@@ -77,21 +76,22 @@ export function isGenericLocation(location: string): boolean {
 }
 
 const DEPARTMENT_SCHEMA = {
-  type: Type.ARRAY,
+  type: "array",
   items: {
-    type: Type.OBJECT,
+    type: "object",
     properties: {
       name: {
-        type: Type.STRING,
+        type: "string",
         description: "The input place name, exactly as given.",
       },
       department: {
-        type: Type.STRING,
+        type: "string",
         description:
           "The department name exactly as written in the given list, or exactly 'unknown' if not confident or not in El Salvador.",
       },
     },
     required: ["name", "department"],
+    additionalProperties: false,
   },
 };
 
@@ -104,7 +104,7 @@ async function resolveDepartments(
     return map;
   }
 
-  const ai = new GoogleGenAI({ apiKey: options.apiKey });
+  const client = createLlmClient(options);
 
   const prompt = [
     "These are places in El Salvador:",
@@ -114,21 +114,13 @@ async function resolveDepartments(
     "If you are not confident about a place or it is not in El Salvador, use exactly: unknown",
   ].join(" ");
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: DEPARTMENT_SCHEMA,
-    },
-  });
+  const parsed = await generateJson<Array<{ name: string; department: string }>>(
+    client,
+    prompt,
+    DEPARTMENT_SCHEMA,
+    { model: options.model, schemaName: "departments" },
+  );
 
-  const text = response.text;
-  if (!text) {
-    return map;
-  }
-
-  const parsed = JSON.parse(text) as Array<{ name: string; department: string }>;
   for (const entry of parsed) {
     const normalized = normalize(entry.department);
     const department =

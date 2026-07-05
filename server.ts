@@ -1,42 +1,34 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
-<<<<<<< HEAD
-import { getSqlClient, listPlacesWithScores } from "./src/db";
-import { processApifyItem } from "./src/ingest";
-import { computeScores } from "./src/places";
-import type { ScrapeInput, VideoAnalysis } from "./src/types";
-=======
 import {
   countDistinctSources,
   findPlaceByCanonicalName,
   findPlaceByGoogleId,
   getPlaceWithMentions,
   getProcessedWebUrls,
-  getPlaceNames,
   getSqlClient,
   listAllPlaceIds,
   listPlacesWithScores,
   markWebSourceStatus,
   registerWebSource,
-  type ResolvedPlaceMention,
 } from "./src/db";
 import { discoverUrls, extractDomain } from "./src/exa";
 import { extractPlaces } from "./src/firecrawl";
-import { analyzeVideo } from "./src/gemini";
 import { resolveCoordinates } from "./src/geocode";
 import { findPlaceByText } from "./src/google-places";
-import { resolveLocations } from "./src/location";
-import { canonicalizePlaces, computeScores } from "./src/places";
+import { processApifyItem } from "./src/ingest";
+import { computeScores } from "./src/places";
 import { buildWebMention, persistAndIndexPlace } from "./src/persist";
 import { buildSearchDoc, upsertSearchDoc } from "./src/search";
-import type { LocationMention, ScrapeInput, VideoAnalysis, WebWorkflowInput } from "./src/types";
+import type { ScrapeInput, VideoAnalysis, WebWorkflowInput } from "./src/types";
 import { verifyPlace } from "./src/verify";
->>>>>>> origin/feature/web-reinforcement-verification
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
 interface Bindings extends WorkflowBindings {
   APIFY_TOKEN: string;
   GEMINI_API_KEY: string;
+  OPENROUTER_API_KEY: string;
+  OPENROUTER_MODEL: string;
   DATABASE_URL: string;
   GOOGLE_PLACES_API_KEY: string;
   FIRECRAWL_API_KEY: string;
@@ -93,140 +85,29 @@ app.post(
       }
 
       const analysis = await context.run(`process-video-${item.id}`, async () => {
-        const apiKey = context.env.GEMINI_API_KEY;
+        const geminiApiKey = context.env.GEMINI_API_KEY;
+        const openRouterApiKey = context.env.OPENROUTER_API_KEY;
         const databaseUrl = context.env.DATABASE_URL;
         const googleApiKey = context.env.GOOGLE_PLACES_API_KEY;
-        if (!apiKey) {
+
+        if (!geminiApiKey) {
           throw new Error("GEMINI_API_KEY is not configured");
+        }
+        if (!openRouterApiKey) {
+          throw new Error("OPENROUTER_API_KEY is not configured");
         }
         if (!databaseUrl) {
           throw new Error("DATABASE_URL is not configured");
         }
 
-<<<<<<< HEAD
         const sql = getSqlClient(databaseUrl);
-        return processApifyItem(sql, item, { category: input.category, apiKey });
-      });
-
-      analyses.push(analysis);
-    }
-
-    return { count: result.count, analyses };
-=======
-        const videoAnalysis = await analyzeVideo(item, { apiKey });
-
-        if (videoAnalysis.locations.length === 0) {
-          return videoAnalysis;
-        }
-
-        const resolvedNames = await resolveLocations(
-          videoAnalysis.locations.map((location) => location.name),
-          { apiKey },
-        );
-
-        const resolved = videoAnalysis.locations
-          .map((location, index) => ({ name: resolvedNames[index], coordinates: location.coordinates }))
-          .filter((location): location is LocationMention => location.name !== null);
-
-        if (resolved.length === 0) {
-          videoAnalysis.locations = [];
-          return videoAnalysis;
-        }
-
-        const geocoded: LocationMention[] = [];
-        for (const location of resolved) {
-          const geocode = await resolveCoordinates({
-            name: location.name,
-            googleApiKey,
-          });
-          geocoded.push({
-            name: location.name,
-            coordinates: geocode?.coordinates ?? null,
-          });
-        }
-        videoAnalysis.locations = geocoded;
-
-        const sql = getSqlClient(databaseUrl);
-        const existingPlaces = await getPlaceNames(sql);
-        const canonicalNames = await canonicalizePlaces(geocoded, videoAnalysis.summary, existingPlaces, {
-          apiKey,
+        return processApifyItem(sql, item, {
+          category: input.category,
+          geminiApiKey,
+          openRouterApiKey,
+          openRouterModel: context.env.OPENROUTER_MODEL || undefined,
+          googleApiKey,
         });
-
-        const deduped = new Map<string, ResolvedPlaceMention>();
-        geocoded.forEach((location, index) => {
-          const canonicalName = canonicalNames[index];
-          if (!deduped.has(canonicalName)) {
-            deduped.set(canonicalName, {
-              canonicalName,
-              locationText: location.name,
-              coordinates: location.coordinates,
-            });
-          }
-        });
-
-        const likes = Math.round((item.likes ?? 0) / deduped.size);
-        const comments = Math.round((item.comments ?? 0) / deduped.size);
-        const shares = Math.round((item.shares ?? 0) / deduped.size);
-        const bookmarks = Math.round((item.bookmarks ?? 0) / deduped.size);
-
-        for (const place of deduped.values()) {
-          const geocode = await resolveCoordinates({
-            name: place.canonicalName,
-            locationText: place.locationText,
-            googleApiKey,
-          });
-
-          const googlePlace = googleApiKey
-            ? await findPlaceByText(place.canonicalName, place.locationText, googleApiKey)
-            : null;
-
-          const existingByGoogle = googlePlace
-            ? await findPlaceByGoogleId(sql, googlePlace.placeId)
-            : null;
-          const existingByName = existingByGoogle
-            ? null
-            : await findPlaceByCanonicalName(sql, place.canonicalName);
-          const existingPlaceId = existingByGoogle?.id ?? existingByName?.id;
-          const existingSourceCount = existingPlaceId
-            ? await countDistinctSources(sql, existingPlaceId)
-            : 0;
-
-          const verifyResult = verifyPlace({
-            name: place.canonicalName,
-            locationText: place.locationText,
-            category: input.category,
-            coordinates: geocode?.coordinates ?? place.coordinates,
-            googlePlace,
-            existingSourceCount,
-            incomingSource: "tiktok",
-          });
-
-          await persistAndIndexPlace(sql, {
-            canonicalName: place.canonicalName,
-            locationText: place.locationText,
-            category: input.category,
-            coordinates: geocode?.coordinates ?? place.coordinates,
-            geocode,
-            googlePlace,
-            verifyResult,
-            mention: {
-              source: "tiktok",
-              videoId: videoAnalysis.videoId,
-              sourceUrl: item.video?.url ?? item.postPage ?? null,
-              sentiment: videoAnalysis.sentiment,
-              sentimentScore: videoAnalysis.sentimentScore,
-              likes,
-              comments,
-              shares,
-              bookmarks,
-              summary: videoAnalysis.summary,
-              locationText: place.locationText,
-              transcript: videoAnalysis.transcription,
-            },
-          });
-        }
-
-        return videoAnalysis;
       });
 
       analyses.push(analysis);
@@ -389,7 +270,6 @@ app.post(
     });
 
     return { reindexed };
->>>>>>> origin/feature/web-reinforcement-verification
   }),
 );
 

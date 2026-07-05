@@ -2,7 +2,10 @@
   "type": "module",
   "scripts": {
     "build": "nitro build",
-    "dev": "nitro dev"
+    "dev": "nitro dev",
+    "migrate": "node --env-file=.env node_modules/tsx/dist/cli.mjs src/scripts/migrate.ts",
+    "ingest:file": "node --env-file=.env node_modules/tsx/dist/cli.mjs src/scripts/ingest-from-file.ts",
+    "ingest:web": "node --env-file=.env node_modules/tsx/dist/cli.mjs src/scripts/ingest-web-local.ts"
   },
   "devDependencies": {
     "hono": "^4.12.27",
