@@ -40,7 +40,7 @@ export interface ResolvedPlaceMention {
 export interface UpsertPlaceMentionsInput {
   category?: string;
   item: RawApifyItem;
-  analysis: Pick<VideoAnalysis, "videoId" | "sentiment" | "sentimentScore" | "summary">;
+  analysis: Pick<VideoAnalysis, "videoId" | "sentiment" | "sentimentScore" | "summary" | "transcription">;
   places: ResolvedPlaceMention[];
 }
 
@@ -77,8 +77,8 @@ export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsIn
       ((await sql`SELECT id FROM places WHERE canonical_name = ${place.canonicalName}`) as Array<{ id: string }>)[0].id;
 
     const insertedMention = (await sql`
-      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text)
-      VALUES (${placeId}, ${analysis.videoId}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${place.locationText})
+      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text, transcript)
+      VALUES (${placeId}, ${analysis.videoId}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${place.locationText}, ${analysis.transcription})
       ON CONFLICT (video_id, place_id) DO NOTHING
       RETURNING id
     `) as Array<{ id: string }>;
@@ -123,6 +123,7 @@ export interface PlaceRow {
 export interface PlaceWithMentions extends PlaceRow {
   category: string | null;
   summaries: string[];
+  transcripts: string[];
 }
 
 /**
@@ -155,7 +156,11 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
       COALESCE(
         json_agg(m.summary ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL),
         '[]'
-      ) AS summaries
+      ) AS summaries,
+      COALESCE(
+        json_agg(m.transcript ORDER BY m.created_at) FILTER (WHERE m.transcript IS NOT NULL),
+        '[]'
+      ) AS transcripts
     FROM places p
     LEFT JOIN place_mentions m ON m.place_id = p.id
     WHERE p.id = ${placeId}
@@ -175,6 +180,7 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     suspicious_location: boolean;
     sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
     summaries: string[];
+    transcripts: string[];
   }>;
 
   const row = rows[0];
@@ -197,6 +203,7 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     suspicious: row.suspicious_location,
     sentiments: row.sentiments,
     summaries: row.summaries,
+    transcripts: row.transcripts,
   };
 }
 

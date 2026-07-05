@@ -135,11 +135,12 @@ app.post(
             content: {
               name: place.canonicalName,
               locationText: place.locationText,
-              category: place.category,
               summaries: place.summaries,
+              transcripts: place.transcripts,
             },
             metadata: {
               coordinates: place.lat !== null && place.lng !== null ? { lat: place.lat, lng: place.lng } : null,
+              category: place.category,
               mentionCount: place.mentionCount,
               engagement: {
                 likes: place.totalLikes,
