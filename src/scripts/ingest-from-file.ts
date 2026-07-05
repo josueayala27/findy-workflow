@@ -1,24 +1,34 @@
 import { readFileSync } from "node:fs";
 import { getSqlClient } from "../db";
 import { processApifyItem } from "../ingest";
+import { analyzeVideoWithOpenAI } from "../openai";
 import type { Category, RawApifyItem } from "../types";
 
-function parseArgs(): { file: string; category: Category } {
-  const [file, category] = process.argv.slice(2);
-  if (!file || !category) {
-    console.error("Usage: node --env-file=.env src/scripts/ingest-from-file.ts <path-to-json> <category>");
+function parseArgs(): { file: string; category: Category; provider: "gemini" | "openai" } {
+  const args = process.argv.slice(2);
+  const providerFlagIndex = args.indexOf("--provider");
+  const provider = providerFlagIndex >= 0 ? (args[providerFlagIndex + 1] as "gemini" | "openai") : "gemini";
+  const positional = args.filter((_, i) => i !== providerFlagIndex && i !== providerFlagIndex + 1);
+  const [file, category] = positional;
+
+  if (!file || !category || (provider !== "gemini" && provider !== "openai")) {
+    console.error(
+      "Usage: node --env-file=.env node_modules/tsx/dist/cli.mjs src/scripts/ingest-from-file.ts <path-to-json> <category> [--provider gemini|openai]",
+    );
     process.exit(1);
   }
-  return { file, category: category as Category };
+  return { file, category: category as Category, provider };
 }
 
 async function main() {
-  const { file, category } = parseArgs();
+  const { file, category, provider } = parseArgs();
 
   const databaseUrl = process.env.DATABASE_URL;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const openaiApiKey = process.env.OPENAI_API_KEY;
   if (!databaseUrl) throw new Error("DATABASE_URL is not configured");
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+  if (!geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
+  if (provider === "openai" && !openaiApiKey) throw new Error("OPENAI_API_KEY is not configured");
 
   const raw = JSON.parse(readFileSync(file, "utf8"));
   const items: RawApifyItem[] = Array.isArray(raw) ? raw : raw.items;
@@ -36,7 +46,12 @@ async function main() {
     }
 
     try {
-      await processApifyItem(sql, item, { category, apiKey });
+      await processApifyItem(sql, item, {
+        category,
+        apiKey: geminiApiKey,
+        analyzeVideo:
+          provider === "openai" ? (videoItem) => analyzeVideoWithOpenAI(videoItem, { apiKey: openaiApiKey! }) : undefined,
+      });
       processed++;
       console.log(`[${processed + skipped + failed}/${items.length}] ok: ${item.id}`);
     } catch (error) {

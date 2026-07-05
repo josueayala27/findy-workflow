@@ -1,6 +1,6 @@
 import type { Sql } from "./db";
 import { getPlaceNames, getPlaceWithMentions, upsertPlaceMentions, type ResolvedPlaceMention } from "./db";
-import { analyzeVideo } from "./gemini";
+import { analyzeVideo as analyzeVideoWithGemini } from "./gemini";
 import { geocodeLocation } from "./geocode";
 import { resolveLocations } from "./location";
 import { canonicalizePlaces } from "./places";
@@ -9,7 +9,10 @@ import type { Category, LocationMention, RawApifyItem, VideoAnalysis } from "./t
 
 export interface ProcessItemOptions {
   category: Category;
+  /** Gemini key, used for resolveLocations + canonicalizePlaces, and as the default video analyzer's key. */
   apiKey: string;
+  /** Swap out the video-analysis step (e.g. for analyzeVideoWithOpenAI when Gemini's Files API quota is exhausted). Defaults to Gemini. */
+  analyzeVideo?: (item: RawApifyItem, opts: { apiKey: string }) => Promise<VideoAnalysis>;
 }
 
 /**
@@ -22,7 +25,7 @@ export async function processApifyItem(
   item: RawApifyItem,
   options: ProcessItemOptions,
 ): Promise<VideoAnalysis> {
-  const { category, apiKey } = options;
+  const { category, apiKey, analyzeVideo = analyzeVideoWithGemini } = options;
 
   const videoAnalysis = await analyzeVideo(item, { apiKey });
 

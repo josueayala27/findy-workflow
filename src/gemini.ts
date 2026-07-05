@@ -141,7 +141,7 @@ export async function analyzeVideo(
   };
 }
 
-function normalizeSentiment(value: string): Sentiment {
+export function normalizeSentiment(value: string): Sentiment {
   const normalized = value.trim().toLowerCase();
   return (SENTIMENTS as readonly string[]).includes(normalized)
     ? (normalized as Sentiment)
