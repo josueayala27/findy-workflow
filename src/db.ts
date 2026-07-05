@@ -3,6 +3,8 @@ import { isWithinElSalvador } from "./geocode";
 import type { Coordinates, RawApifyItem, VideoAnalysis } from "./types";
 
 export type Sql = NeonQueryFunction<false, false>;
+export type MentionSource = "tiktok" | "instagram" | "web";
+export type VerificationStatus = "verified" | "unverified" | "rejected";
 
 export function getSqlClient(databaseUrl: string): Sql {
   return neon(databaseUrl);
@@ -31,6 +33,65 @@ export async function getPlaceNames(sql: Sql): Promise<ExistingPlace[]> {
   }));
 }
 
+export async function findPlaceByCanonicalName(
+  sql: Sql,
+  canonicalName: string,
+): Promise<{ id: string } | null> {
+  const rows = (await sql`
+    SELECT id FROM places WHERE canonical_name = ${canonicalName} LIMIT 1
+  `) as Array<{ id: string }>;
+  return rows[0] ?? null;
+}
+
+export async function findPlaceByGoogleId(
+  sql: Sql,
+  googlePlaceId: string,
+): Promise<{ id: string; canonicalName: string } | null> {
+  const rows = (await sql`
+    SELECT id, canonical_name FROM places WHERE google_place_id = ${googlePlaceId} LIMIT 1
+  `) as Array<{ id: string; canonical_name: string }>;
+  return rows[0] ? { id: rows[0].id, canonicalName: rows[0].canonical_name } : null;
+}
+
+export async function countDistinctSources(sql: Sql, placeId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(DISTINCT source)::int AS count
+    FROM place_mentions
+    WHERE place_id = ${placeId}
+  `) as Array<{ count: number }>;
+  return rows[0]?.count ?? 0;
+}
+
+export async function getProcessedWebUrls(sql: Sql): Promise<string[]> {
+  const rows = (await sql`
+    SELECT url FROM web_sources WHERE status = 'processed'
+  `) as Array<{ url: string }>;
+  return rows.map((r) => r.url);
+}
+
+export async function registerWebSource(
+  sql: Sql,
+  url: string,
+  domain: string,
+  category: string,
+): Promise<void> {
+  await sql`
+    INSERT INTO web_sources (url, domain, category, status)
+    VALUES (${url}, ${domain}, ${category}, 'pending')
+    ON CONFLICT (url) DO NOTHING
+  `;
+}
+
+export async function markWebSourceStatus(
+  sql: Sql,
+  url: string,
+  status: "processed" | "failed",
+): Promise<void> {
+  await sql`
+    UPDATE web_sources SET status = ${status}, scraped_at = now() WHERE url = ${url}
+  `;
+}
+
 export interface ResolvedPlaceMention {
   canonicalName: string;
   locationText: string;
@@ -42,13 +103,10 @@ export interface UpsertPlaceMentionsInput {
   item: RawApifyItem;
   analysis: Pick<VideoAnalysis, "videoId" | "sentiment" | "sentimentScore" | "summary" | "transcription">;
   places: ResolvedPlaceMention[];
+  sourceUrl?: string;
 }
 
-/**
- * Persists a video's resolved, deduped place mentions. Engagement is split evenly
- * across `places` so a video mentioning several places doesn't credit each one with
- * the full engagement of the video.
- */
+/** @deprecated Use persistAndIndexPlace from persist.ts instead. Kept for compatibility. */
 export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsInput): Promise<string[]> {
   const { category, item, analysis, places } = input;
   if (places.length === 0) {
@@ -77,9 +135,9 @@ export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsIn
       ((await sql`SELECT id FROM places WHERE canonical_name = ${place.canonicalName}`) as Array<{ id: string }>)[0].id;
 
     const insertedMention = (await sql`
-      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text, transcript)
-      VALUES (${placeId}, ${analysis.videoId}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${place.locationText}, ${analysis.transcription})
-      ON CONFLICT (video_id, place_id) DO NOTHING
+      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text, transcript, source, source_url)
+      VALUES (${placeId}, ${analysis.videoId}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${place.locationText}, ${analysis.transcription}, 'tiktok', ${input.sourceUrl ?? item.video?.url ?? null})
+      ON CONFLICT (place_id, source, video_id) DO NOTHING
       RETURNING id
     `) as Array<{ id: string }>;
 
@@ -117,6 +175,11 @@ export interface PlaceRow {
   totalShares: number;
   totalBookmarks: number;
   suspicious: boolean;
+  verificationStatus: VerificationStatus;
+  verificationScore: number | null;
+  department: string | null;
+  municipality: string | null;
+  googlePlaceId: string | null;
   sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
 }
 
@@ -124,13 +187,10 @@ export interface PlaceWithMentions extends PlaceRow {
   category: string | null;
   summaries: string[];
   transcripts: string[];
+  sources: MentionSource[];
+  sourceUrls: string[];
 }
 
-/**
- * Re-derives a place's full current state (across all videos that mention it) straight
- * from Postgres, so a search-index doc can be rebuilt as a complete, idempotent snapshot
- * rather than an incremental patch.
- */
 export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<PlaceWithMentions | null> {
   const rows = (await sql`
     SELECT
@@ -146,6 +206,11 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
       p.total_shares,
       p.total_bookmarks,
       p.suspicious_location,
+      p.verification_status,
+      p.verification_score,
+      p.department,
+      p.municipality,
+      p.google_place_id,
       COALESCE(
         json_agg(
           json_build_object('videoId', m.video_id, 'sentiment', m.sentiment, 'sentimentScore', m.sentiment_score)
@@ -160,7 +225,15 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
       COALESCE(
         json_agg(m.transcript ORDER BY m.created_at) FILTER (WHERE m.transcript IS NOT NULL),
         '[]'
-      ) AS transcripts
+      ) AS transcripts,
+      COALESCE(
+        json_agg(DISTINCT m.source) FILTER (WHERE m.id IS NOT NULL),
+        '[]'
+      ) AS sources,
+      COALESCE(
+        json_agg(m.source_url ORDER BY m.created_at) FILTER (WHERE m.source_url IS NOT NULL),
+        '[]'
+      ) AS source_urls
     FROM places p
     LEFT JOIN place_mentions m ON m.place_id = p.id
     WHERE p.id = ${placeId}
@@ -178,9 +251,16 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     total_shares: number;
     total_bookmarks: number;
     suspicious_location: boolean;
+    verification_status: VerificationStatus;
+    verification_score: string | null;
+    department: string | null;
+    municipality: string | null;
+    google_place_id: string | null;
     sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
     summaries: string[];
     transcripts: string[];
+    sources: MentionSource[];
+    source_urls: string[];
   }>;
 
   const row = rows[0];
@@ -201,10 +281,24 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     totalShares: row.total_shares,
     totalBookmarks: row.total_bookmarks,
     suspicious: row.suspicious_location,
+    verificationStatus: row.verification_status ?? "unverified",
+    verificationScore: row.verification_score ? Number(row.verification_score) : null,
+    department: row.department,
+    municipality: row.municipality,
+    googlePlaceId: row.google_place_id,
     sentiments: row.sentiments,
     summaries: row.summaries,
     transcripts: row.transcripts,
+    sources: row.sources ?? [],
+    sourceUrls: row.source_urls ?? [],
   };
+}
+
+export async function listAllPlaceIds(sql: Sql): Promise<string[]> {
+  const rows = (await sql`
+    SELECT id FROM places WHERE verification_status != 'rejected'
+  `) as Array<{ id: string }>;
+  return rows.map((r) => r.id);
 }
 
 export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
@@ -221,6 +315,11 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
       p.total_shares,
       p.total_bookmarks,
       p.suspicious_location,
+      p.verification_status,
+      p.verification_score,
+      p.department,
+      p.municipality,
+      p.google_place_id,
       COALESCE(
         json_agg(
           json_build_object('videoId', m.video_id, 'sentiment', m.sentiment, 'sentimentScore', m.sentiment_score)
@@ -244,6 +343,11 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
     total_shares: number;
     total_bookmarks: number;
     suspicious_location: boolean;
+    verification_status: VerificationStatus;
+    verification_score: string | null;
+    department: string | null;
+    municipality: string | null;
+    google_place_id: string | null;
     sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
   }>;
 
@@ -259,6 +363,11 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
     totalShares: row.total_shares,
     totalBookmarks: row.total_bookmarks,
     suspicious: row.suspicious_location,
+    verificationStatus: row.verification_status ?? "unverified",
+    verificationScore: row.verification_score ? Number(row.verification_score) : null,
+    department: row.department,
+    municipality: row.municipality,
+    googlePlaceId: row.google_place_id,
     sentiments: row.sentiments,
   }));
 }
