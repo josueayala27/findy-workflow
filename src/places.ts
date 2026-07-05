@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai/web";
 import type { ExistingPlace, PlaceRow } from "./db";
 import type { LocationMention, PlaceSummary, VideoAnalysis } from "./types";
 

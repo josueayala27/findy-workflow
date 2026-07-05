@@ -6,7 +6,7 @@
   },
   "devDependencies": {
     "hono": "^4.12.27",
-    "nitro": "latest",
+    "nitro": "3.0.260610-beta",
     "wrangler": "^4.107.0"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai/web";
 
 const MODEL = "gemini-2.5-flash";
 

@@ -3,7 +3,7 @@ import {
   Type,
   createPartFromUri,
   createUserContent,
-} from "@google/genai";
+} from "@google/genai/web";
 import { SENTIMENTS, type RawApifyItem, type Sentiment, type VideoAnalysis } from "./types";
 
 const MODEL = "gemini-2.5-flash";

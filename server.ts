@@ -104,64 +104,64 @@ app.post(
         const canonicalNames = await canonicalizePlaces(geocoded, videoAnalysis.summary, existingPlaces, {
           apiKey,
         });
-
-        const deduped = new Map<string, ResolvedPlaceMention>();
-        geocoded.forEach((location, index) => {
-          const canonicalName = canonicalNames[index];
-          if (!deduped.has(canonicalName)) {
-            deduped.set(canonicalName, {
-              canonicalName,
-              locationText: location.name,
-              coordinates: location.coordinates,
-            });
-          }
-        });
-
-        const touchedPlaceIds = await upsertPlaceMentions(sql, {
-          category: input.category,
-          item,
-          analysis: videoAnalysis,
-          places: Array.from(deduped.values()),
-        });
-
-        for (const placeId of touchedPlaceIds) {
-          const place = await getPlaceWithMentions(sql, placeId);
-          if (!place) {
-            continue;
-          }
-
-          await upsertSearchDoc({
-            id: place.id,
-            content: {
-              name: place.canonicalName,
-              locationText: place.locationText,
-              summaries: place.summaries,
-              transcripts: place.transcripts,
-            },
-            metadata: {
-              coordinates: place.lat !== null && place.lng !== null ? { lat: place.lat, lng: place.lng } : null,
-              category: place.category,
-              mentionCount: place.mentionCount,
-              engagement: {
-                likes: place.totalLikes,
-                comments: place.totalComments,
-                shares: place.totalShares,
-                bookmarks: place.totalBookmarks,
-              },
-              sentiments: place.sentiments,
-              videoIds: place.sentiments.map((sentiment) => sentiment.videoId),
-              suspicious: place.suspicious,
-            },
+∑
+      const deduped = new Map<string, ResolvedPlaceMention>();
+      geocoded.forEach((location, index) => {
+        const canonicalName = canonicalNames[index];
+        if (!deduped.has(canonicalName)) {
+          deduped.set(canonicalName, {
+            canonicalName,
+            locationText: location.name,
+            coordinates: location.coordinates,
           });
         }
-
-        return videoAnalysis;
       });
 
-      analyses.push(analysis);
+      const touchedPlaceIds = await upsertPlaceMentions(sql, {
+        category: input.category,
+        item,
+        analysis: videoAnalysis,
+        places: Array.from(deduped.values()),
+      });
+
+      for (const placeId of touchedPlaceIds) {
+        const place = await getPlaceWithMentions(sql, placeId);
+        if (!place) {
+          continue;
+        }
+
+        await upsertSearchDoc({
+          id: place.id,
+          content: {
+            name: place.canonicalName,
+            locationText: place.locationText,
+            summaries: place.summaries,
+            transcripts: place.transcripts,
+          },
+          metadata: {
+            coordinates: place.lat !== null && place.lng !== null ? { lat: place.lat, lng: place.lng } : null,
+            category: place.category,
+            mentionCount: place.mentionCount,
+            engagement: {
+              likes: place.totalLikes,
+              comments: place.totalComments,
+              shares: place.totalShares,
+              bookmarks: place.totalBookmarks,
+            },
+            sentiments: place.sentiments,
+            videoIds: place.sentiments.map((sentiment) => sentiment.videoId),
+            suspicious: place.suspicious,
+          },
+        });
+      }
+
+      return videoAnalysis;
+    });
+
+analyses.push(analysis);
     }
 
-    return { count: result.count, analyses };
+return { count: result.count, analyses };
   }),
 );
 
