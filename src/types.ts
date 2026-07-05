@@ -13,6 +13,12 @@ export interface ScrapeInput {
   resultsLimit?: number;
 }
 
+export interface WebWorkflowInput {
+  query: string;
+  category: Category;
+  maxUrls?: number;
+}
+
 export type ApifyDateRange =
   | "DEFAULT"
   | "LAST_24_HOURS"
