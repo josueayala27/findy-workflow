@@ -118,4 +118,5 @@ export interface PlaceSummary {
   mentionCount: number;
   engagement: Engagement;
   sentiments: PlaceSentiment[];
+  suspicious: boolean;
 }

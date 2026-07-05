@@ -1,4 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { isWithinElSalvador } from "./geocode";
 import type { Coordinates, RawApifyItem, VideoAnalysis } from "./types";
 
 export type Sql = NeonQueryFunction<false, false>;
@@ -62,9 +63,11 @@ export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsIn
   const touchedPlaceIds = new Set<string>();
 
   for (const place of places) {
+    const suspiciousLocation = !isWithinElSalvador(place.coordinates);
+
     const inserted = (await sql`
-      INSERT INTO places (canonical_name, location_text, lat, lng, category)
-      VALUES (${place.canonicalName}, ${place.locationText}, ${place.coordinates?.lat ?? null}, ${place.coordinates?.lng ?? null}, ${category ?? null})
+      INSERT INTO places (canonical_name, location_text, lat, lng, category, suspicious_location)
+      VALUES (${place.canonicalName}, ${place.locationText}, ${place.coordinates?.lat ?? null}, ${place.coordinates?.lng ?? null}, ${category ?? null}, ${suspiciousLocation})
       ON CONFLICT (canonical_name) DO NOTHING
       RETURNING id
     `) as Array<{ id: string }>;
@@ -113,6 +116,7 @@ export interface PlaceRow {
   totalComments: number;
   totalShares: number;
   totalBookmarks: number;
+  suspicious: boolean;
   sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
 }
 
@@ -140,6 +144,7 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
       p.total_comments,
       p.total_shares,
       p.total_bookmarks,
+      p.suspicious_location,
       COALESCE(
         json_agg(
           json_build_object('videoId', m.video_id, 'sentiment', m.sentiment, 'sentimentScore', m.sentiment_score)
@@ -167,6 +172,7 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     total_comments: number;
     total_shares: number;
     total_bookmarks: number;
+    suspicious_location: boolean;
     sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
     summaries: string[];
   }>;
@@ -188,6 +194,7 @@ export async function getPlaceWithMentions(sql: Sql, placeId: string): Promise<P
     totalComments: row.total_comments,
     totalShares: row.total_shares,
     totalBookmarks: row.total_bookmarks,
+    suspicious: row.suspicious_location,
     sentiments: row.sentiments,
     summaries: row.summaries,
   };
@@ -206,6 +213,7 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
       p.total_comments,
       p.total_shares,
       p.total_bookmarks,
+      p.suspicious_location,
       COALESCE(
         json_agg(
           json_build_object('videoId', m.video_id, 'sentiment', m.sentiment, 'sentimentScore', m.sentiment_score)
@@ -228,6 +236,7 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
     total_comments: number;
     total_shares: number;
     total_bookmarks: number;
+    suspicious_location: boolean;
     sentiments: Array<{ videoId: string; sentiment: string; sentimentScore: number }>;
   }>;
 
@@ -242,6 +251,7 @@ export async function listPlacesWithScores(sql: Sql): Promise<PlaceRow[]> {
     totalComments: row.total_comments,
     totalShares: row.total_shares,
     totalBookmarks: row.total_bookmarks,
+    suspicious: row.suspicious_location,
     sentiments: row.sentiments,
   }));
 }
