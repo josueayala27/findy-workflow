@@ -31,7 +31,7 @@ interface Bindings extends WorkflowBindings {
   APIFY_TOKEN: string;
   GEMINI_API_KEY: string;
   DATABASE_URL: string;
-  GOOGLE_MAPS_API_KEY: string;
+  GOOGLE_PLACES_API_KEY: string;
   FIRECRAWL_API_KEY: string;
   EXA_API_KEY: string;
 }
@@ -88,7 +88,7 @@ app.post(
       const analysis = await context.run(`process-video-${item.id}`, async () => {
         const apiKey = context.env.GEMINI_API_KEY;
         const databaseUrl = context.env.DATABASE_URL;
-        const googleApiKey = context.env.GOOGLE_MAPS_API_KEY;
+        const googleApiKey = context.env.GOOGLE_PLACES_API_KEY;
         if (!apiKey) {
           throw new Error("GEMINI_API_KEY is not configured");
         }
@@ -271,7 +271,7 @@ app.post(
       for (const webPlace of extracted) {
         await context.run(`process-web-place-${hashKey(urlResult.url + webPlace.name)}`, async () => {
           const databaseUrl = context.env.DATABASE_URL;
-          const googleApiKey = context.env.GOOGLE_MAPS_API_KEY;
+          const googleApiKey = context.env.GOOGLE_PLACES_API_KEY;
           if (!databaseUrl) {
             throw new Error("DATABASE_URL is not configured");
           }
