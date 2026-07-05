@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { ApifyError, runApifyScraper } from "./src/apify";
-import { getPlaceNames, getSqlClient, listPlacesWithScores, upsertPlaceMention } from "./src/db";
+import { getPlaceNames, getSqlClient, listPlacesWithScores, upsertPlaceMentions, type ResolvedPlaceMention } from "./src/db";
 import { analyzeVideo } from "./src/gemini";
 import { geocodeLocation } from "./src/geocode";
-import { resolveLocation } from "./src/location";
-import { canonicalizePlace, computeScores } from "./src/places";
-import type { ScrapeInput, VideoAnalysis } from "./src/types";
+import { resolveLocations } from "./src/location";
+import { canonicalizePlaces, computeScores } from "./src/places";
+import type { LocationMention, ScrapeInput, VideoAnalysis } from "./src/types";
 import { serve, type WorkflowBindings } from "@upstash/workflow/hono";
 
 interface Bindings extends WorkflowBindings {
@@ -62,22 +62,35 @@ app.post(
         return analyzeVideo(item, { apiKey });
       });
 
-      if (analysis.location) {
-        const resolvedLocation = await context.run(`resolve-location-${item.id}`, () => {
+      if (analysis.locations.length > 0) {
+        const resolvedNames = await context.run(`resolve-locations-${item.id}`, () => {
           const apiKey = context.env.GEMINI_API_KEY;
           if (!apiKey) {
             throw new Error("GEMINI_API_KEY is not configured");
           }
-          return resolveLocation(analysis.location!, { apiKey });
+          return resolveLocations(
+            analysis.locations.map((location) => location.name),
+            { apiKey },
+          );
         });
 
-        if (resolvedLocation) {
-          analysis.location = resolvedLocation;
-          analysis.coordinates = await context.run(`geocode-${item.id}`, () =>
-            geocodeLocation(resolvedLocation),
-          );
+        const resolved = analysis.locations
+          .map((location, index) => ({ name: resolvedNames[index], coordinates: location.coordinates }))
+          .filter((location): location is LocationMention => location.name !== null);
 
-          await context.run(`persist-place-${item.id}`, async () => {
+        if (resolved.length > 0) {
+          const geocoded = await context.run(`geocode-${item.id}`, async () => {
+            const results: LocationMention[] = [];
+            for (const location of resolved) {
+              const coordinates = await geocodeLocation(location.name);
+              results.push({ name: location.name, coordinates });
+            }
+            return results;
+          });
+
+          analysis.locations = geocoded;
+
+          await context.run(`persist-places-${item.id}`, async () => {
             const databaseUrl = context.env.DATABASE_URL;
             const apiKey = context.env.GEMINI_API_KEY;
             if (!databaseUrl) {
@@ -89,11 +102,31 @@ app.post(
 
             const sql = getSqlClient(databaseUrl);
             const existingPlaces = await getPlaceNames(sql);
-            const canonicalName = await canonicalizePlace(analysis, existingPlaces, { apiKey });
-            await upsertPlaceMention(sql, { canonicalName, category: input.category, item, analysis });
+            const canonicalNames = await canonicalizePlaces(geocoded, analysis.summary, existingPlaces, {
+              apiKey,
+            });
+
+            const deduped = new Map<string, ResolvedPlaceMention>();
+            geocoded.forEach((location, index) => {
+              const canonicalName = canonicalNames[index];
+              if (!deduped.has(canonicalName)) {
+                deduped.set(canonicalName, {
+                  canonicalName,
+                  locationText: location.name,
+                  coordinates: location.coordinates,
+                });
+              }
+            });
+
+            await upsertPlaceMentions(sql, {
+              category: input.category,
+              item,
+              analysis,
+              places: Array.from(deduped.values()),
+            });
           });
         } else {
-          analysis.location = null;
+          analysis.locations = [];
         }
       }
 

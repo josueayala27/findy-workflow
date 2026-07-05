@@ -1,7 +1,6 @@
-export interface Coordinates {
-  lat: number;
-  lng: number;
-}
+import type { Coordinates } from "./types";
+
+export type { Coordinates };
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 

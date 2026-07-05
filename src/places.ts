@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { ExistingPlace, PlaceRow } from "./db";
-import type { PlaceSummary, VideoAnalysis } from "./types";
+import type { LocationMention, PlaceSummary, VideoAnalysis } from "./types";
 
 const MODEL = "gemini-2.5-flash";
 
@@ -14,40 +14,51 @@ export interface CanonicalizePlaceOptions {
 }
 
 const CANONICALIZE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    matchedExistingName: {
-      type: Type.STRING,
-      nullable: true,
-      description:
-        "If this place is the same real-world place as one already in the existing list, return that place's name exactly as given. Otherwise null.",
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      matchedExistingName: {
+        type: Type.STRING,
+        nullable: true,
+        description:
+          "If this place is the same real-world place as one already in the known list, or as another place mentioned in this same video, return that place's name exactly as given. Otherwise null.",
+      },
+      canonicalName: {
+        type: Type.STRING,
+        description:
+          "A normalized, human-readable name for this place (e.g. 'Playa Los Cóbanos'). If matchedExistingName is set, this must equal it.",
+      },
     },
-    canonicalName: {
-      type: Type.STRING,
-      description:
-        "A normalized, human-readable name for this place (e.g. 'Playa Los Cóbanos'). If matchedExistingName is set, this must equal it.",
-    },
+    required: ["matchedExistingName", "canonicalName"],
   },
-  required: ["matchedExistingName", "canonicalName"],
 };
 
-export async function canonicalizePlace(
-  analysis: Pick<VideoAnalysis, "location" | "coordinates" | "summary">,
+/**
+ * Resolves each of a video's mentioned locations to a canonical place name, matching
+ * against places already known from other videos as well as against each other (so a
+ * place named twice within the same video collapses to one canonical name).
+ */
+export async function canonicalizePlaces(
+  locations: LocationMention[],
+  summary: string,
   existingPlaces: ExistingPlace[],
   options: CanonicalizePlaceOptions,
-): Promise<string> {
+): Promise<string[]> {
+  if (locations.length === 0) {
+    return [];
+  }
+
   const ai = new GoogleGenAI({ apiKey: options.apiKey });
 
   const prompt = [
-    "A video mentions this place:",
-    JSON.stringify({
-      location: analysis.location,
-      coordinates: analysis.coordinates,
-      summary: analysis.summary,
-    }),
+    "A video mentions these places:",
+    JSON.stringify(locations.map((location) => ({ name: location.name, coordinates: location.coordinates }))),
+    "Video summary for context:",
+    summary,
     "Here is a list of places already known from other videos:",
     JSON.stringify(existingPlaces.map((place) => ({ name: place.name, lat: place.lat, lng: place.lng }))),
-    "Decide whether the mentioned place is the same real-world place as one already in the list (accounting for spelling, phrasing, or language differences), or if it's a new place.",
+    "For each mentioned place, in the same order, decide whether it is the same real-world place as one already in the known list, or as another place mentioned earlier in this same list (accounting for spelling, phrasing, or language differences), or if it's a new distinct place.",
   ].join("\n");
 
   const response = await ai.models.generateContent({
@@ -64,8 +75,8 @@ export async function canonicalizePlace(
     throw new Error("Gemini returned no output for place canonicalization");
   }
 
-  const parsed = JSON.parse(text) as { matchedExistingName: string | null; canonicalName: string };
-  return parsed.matchedExistingName ?? parsed.canonicalName;
+  const parsed = JSON.parse(text) as Array<{ matchedExistingName: string | null; canonicalName: string }>;
+  return parsed.map((entry) => entry.matchedExistingName ?? entry.canonicalName);
 }
 
 function weightedEngagement(row: PlaceRow): number {

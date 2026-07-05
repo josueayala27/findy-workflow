@@ -1,5 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { RawApifyItem, VideoAnalysis } from "./types";
+import type { Coordinates, RawApifyItem, VideoAnalysis } from "./types";
 
 export type Sql = NeonQueryFunction<false, false>;
 
@@ -30,54 +30,70 @@ export async function getPlaceNames(sql: Sql): Promise<ExistingPlace[]> {
   }));
 }
 
-export interface UpsertPlaceMentionInput {
+export interface ResolvedPlaceMention {
   canonicalName: string;
-  category?: string;
-  item: RawApifyItem;
-  analysis: VideoAnalysis;
+  locationText: string;
+  coordinates: Coordinates | null;
 }
 
-export async function upsertPlaceMention(sql: Sql, input: UpsertPlaceMentionInput): Promise<void> {
-  const { canonicalName, category, item, analysis } = input;
+export interface UpsertPlaceMentionsInput {
+  category?: string;
+  item: RawApifyItem;
+  analysis: Pick<VideoAnalysis, "videoId" | "sentiment" | "sentimentScore" | "summary">;
+  places: ResolvedPlaceMention[];
+}
 
-  const inserted = (await sql`
-    INSERT INTO places (canonical_name, location_text, lat, lng, category)
-    VALUES (${canonicalName}, ${analysis.location}, ${analysis.coordinates?.lat ?? null}, ${analysis.coordinates?.lng ?? null}, ${category ?? null})
-    ON CONFLICT (canonical_name) DO NOTHING
-    RETURNING id
-  `) as Array<{ id: string }>;
-
-  const placeId =
-    inserted[0]?.id ??
-    ((await sql`SELECT id FROM places WHERE canonical_name = ${canonicalName}`) as Array<{ id: string }>)[0].id;
-
-  const likes = item.likes ?? 0;
-  const comments = item.comments ?? 0;
-  const shares = item.shares ?? 0;
-  const bookmarks = item.bookmarks ?? 0;
-
-  const insertedMention = (await sql`
-    INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text)
-    VALUES (${placeId}, ${item.id}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${analysis.location})
-    ON CONFLICT (video_id) DO NOTHING
-    RETURNING id
-  `) as Array<{ id: string }>;
-
-  if (insertedMention.length === 0) {
+/**
+ * Persists a video's resolved, deduped place mentions. Engagement is split evenly
+ * across `places` so a video mentioning several places doesn't credit each one with
+ * the full engagement of the video.
+ */
+export async function upsertPlaceMentions(sql: Sql, input: UpsertPlaceMentionsInput): Promise<void> {
+  const { category, item, analysis, places } = input;
+  if (places.length === 0) {
     return;
   }
 
-  await sql`
-    UPDATE places
-    SET
-      mention_count = mention_count + 1,
-      total_likes = total_likes + ${likes},
-      total_comments = total_comments + ${comments},
-      total_shares = total_shares + ${shares},
-      total_bookmarks = total_bookmarks + ${bookmarks},
-      updated_at = now()
-    WHERE id = ${placeId}
-  `;
+  const likes = Math.round((item.likes ?? 0) / places.length);
+  const comments = Math.round((item.comments ?? 0) / places.length);
+  const shares = Math.round((item.shares ?? 0) / places.length);
+  const bookmarks = Math.round((item.bookmarks ?? 0) / places.length);
+
+  for (const place of places) {
+    const inserted = (await sql`
+      INSERT INTO places (canonical_name, location_text, lat, lng, category)
+      VALUES (${place.canonicalName}, ${place.locationText}, ${place.coordinates?.lat ?? null}, ${place.coordinates?.lng ?? null}, ${category ?? null})
+      ON CONFLICT (canonical_name) DO NOTHING
+      RETURNING id
+    `) as Array<{ id: string }>;
+
+    const placeId =
+      inserted[0]?.id ??
+      ((await sql`SELECT id FROM places WHERE canonical_name = ${place.canonicalName}`) as Array<{ id: string }>)[0].id;
+
+    const insertedMention = (await sql`
+      INSERT INTO place_mentions (place_id, video_id, sentiment, sentiment_score, likes, comments, shares, bookmarks, summary, location_text)
+      VALUES (${placeId}, ${analysis.videoId}, ${analysis.sentiment}, ${analysis.sentimentScore}, ${likes}, ${comments}, ${shares}, ${bookmarks}, ${analysis.summary}, ${place.locationText})
+      ON CONFLICT (video_id, place_id) DO NOTHING
+      RETURNING id
+    `) as Array<{ id: string }>;
+
+    if (insertedMention.length === 0) {
+      continue;
+    }
+
+    await sql`
+      UPDATE places
+      SET
+        mention_count = mention_count + 1,
+        total_likes = total_likes + ${likes},
+        total_comments = total_comments + ${comments},
+        total_shares = total_shares + ${shares},
+        total_bookmarks = total_bookmarks + ${bookmarks},
+        updated_at = now()
+      WHERE id = ${placeId}
+    `;
+  }
 }
 
 export interface PlaceRow {

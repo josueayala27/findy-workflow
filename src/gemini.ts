@@ -9,6 +9,7 @@ import { SENTIMENTS, type RawApifyItem, type Sentiment, type VideoAnalysis } fro
 const MODEL = "gemini-2.5-flash";
 const FILE_POLL_INTERVAL_MS = 2000;
 const FILE_POLL_TIMEOUT_MS = 120_000;
+const MAX_LOCATIONS = 5;
 
 export interface AnalyzeVideoOptions {
   apiKey: string;
@@ -31,21 +32,25 @@ const ANALYSIS_SCHEMA = {
       description:
         "Full transcription of the spoken audio in the video, in its original language (likely Spanish). Empty string if there is no speech.",
     },
-    location: {
-      type: Type.STRING,
-      nullable: true,
+    locations: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.STRING,
+      },
       description:
-        "The specific, named place shown or mentioned in the video (e.g. a beach, restaurant, town, or landmark name), such as 'Playa Los Cóbanos' or 'Playa El Tunco'. " +
-        "Read both the spoken audio and any on-screen text overlays for this — many videos have no speech but show the place name as text on screen. " +
-        "Never return just 'El Salvador' or a generic description like 'a beach in El Salvador' or 'various beaches' — those are not specific places. " +
-        "Null if no specific named place can be identified from either audio or on-screen text.",
+        "The specific, named places shown or mentioned in the video (e.g. beach, restaurant, town, or landmark names), such as 'Playa Los Cóbanos' or 'Playa El Tunco'. " +
+        "Read both the spoken audio and any on-screen text overlays for this — many videos have no speech but show place names as text on screen. " +
+        "A video may mention several distinct places (e.g. a compilation of beaches); list each one separately instead of joining them into one string. " +
+        `Return at most the ${MAX_LOCATIONS} most clearly identified, prominent places, ordered by prominence. ` +
+        "Never include just 'El Salvador' or a generic description like 'a beach in El Salvador' or 'various beaches' — those are not specific places. " +
+        "Empty array if no specific named place can be identified from either audio or on-screen text.",
     },
     summary: {
       type: Type.STRING,
       description: "One or two sentence summary of what the video is about.",
     },
   },
-  required: ["sentiment", "sentimentScore", "transcription", "location", "summary"],
+  required: ["sentiment", "sentimentScore", "transcription", "locations", "summary"],
 };
 
 async function waitForFileActive(ai: GoogleGenAI, name: string) {
@@ -114,13 +119,24 @@ export async function analyzeVideo(
     throw new Error(`Gemini returned no output for video ${item.id}`);
   }
 
-  const parsed = JSON.parse(text) as Omit<VideoAnalysis, "videoId" | "coordinates">;
+  const parsed = JSON.parse(text) as {
+    sentiment: string;
+    sentimentScore: number;
+    transcription: string;
+    locations: string[];
+    summary: string;
+  };
 
   return {
     videoId: item.id,
-    ...parsed,
     sentiment: normalizeSentiment(parsed.sentiment),
-    coordinates: null,
+    sentimentScore: parsed.sentimentScore,
+    transcription: parsed.transcription,
+    summary: parsed.summary,
+    locations: parsed.locations
+      .filter((name) => name.trim().length > 0)
+      .slice(0, MAX_LOCATIONS)
+      .map((name) => ({ name, coordinates: null })),
   };
 }
 

@@ -77,13 +77,22 @@ export const SENTIMENTS = [
 
 export type Sentiment = (typeof SENTIMENTS)[number];
 
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
+
+export interface LocationMention {
+  name: string;
+  coordinates: Coordinates | null;
+}
+
 export interface VideoAnalysis {
   videoId: string;
   sentiment: Sentiment;
   sentimentScore: number;
   transcription: string;
-  location: string | null;
-  coordinates: { lat: number; lng: number } | null;
+  locations: LocationMention[];
   summary: string;
 }
 
