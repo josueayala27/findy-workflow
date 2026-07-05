@@ -37,23 +37,52 @@ export interface RawApifyChannel {
   id?: string;
   name?: string;
   username?: string;
+  bio?: string;
+  avatar?: string;
+  verified?: boolean;
+  url?: string;
   followers?: number;
+  following?: number;
+  videos?: number;
 }
 
-export interface RawApifyVideoAsset {
+export interface RawApifyVideo {
   width?: number;
   height?: number;
+  ratio?: string;
   duration?: number;
   url?: string;
   cover?: string;
   thumbnail?: string;
 }
 
+export interface RawApifySong {
+  id?: number;
+  title?: string;
+  artist?: string;
+  album?: string | null;
+  duration?: number;
+  cover?: string;
+}
+
+/** TikTok-native subtitle track, when present — free alternative to running STT. */
+export interface RawApifySubtitle {
+  caption_format?: string;
+  caption_length?: number;
+  is_auto_generated?: boolean;
+  is_original_caption?: boolean;
+  lang?: string;
+  language_code?: string;
+  url?: string;
+}
+
 export interface RawApifyItem {
+  inputSource?: string;
   id?: string;
   title?: string;
   views?: number;
   likes?: number;
+  /** Comment count only — this actor does not return comment text. */
   comments?: number;
   shares?: number;
   bookmarks?: number;
@@ -61,7 +90,10 @@ export interface RawApifyItem {
   channel?: RawApifyChannel;
   uploadedAt?: number;
   uploadedAtFormatted?: string;
-  video?: RawApifyVideoAsset;
+  video?: RawApifyVideo;
+  song?: RawApifySong;
+  subtitleInformation?: RawApifySubtitle[];
+  postPage?: string;
 }
 
 export const SENTIMENTS = [
