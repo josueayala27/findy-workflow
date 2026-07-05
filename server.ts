@@ -4,7 +4,6 @@ import {
   countDistinctSources,
   findPlaceByCanonicalName,
   findPlaceByGoogleId,
-  getPlaceNames,
   getPlaceWithMentions,
   getProcessedWebUrls,
   getSqlClient,
@@ -101,7 +100,6 @@ app.post(
           throw new Error("DATABASE_URL is not configured");
         }
 
-<<<<<<< Updated upstream
         const sql = getSqlClient(databaseUrl);
         return processApifyItem(sql, item, {
           category: input.category,
@@ -109,45 +107,6 @@ app.post(
           openRouterApiKey,
           openRouterModel: context.env.OPENROUTER_MODEL || undefined,
           googleApiKey,
-=======
-        const videoAnalysis = await analyzeVideo(item, { apiKey });
-
-        if (videoAnalysis.locations.length === 0) {
-          return videoAnalysis;
-        }
-
-        const resolvedNames = await resolveLocations(
-          videoAnalysis.locations.map((location) => location.name),
-          { apiKey },
-        );
-
-        const resolved = videoAnalysis.locations
-          .map((location, index) => ({ name: resolvedNames[index], coordinates: location.coordinates }))
-          .filter((location): location is LocationMention => location.name !== null);
-
-        if (resolved.length === 0) {
-          videoAnalysis.locations = [];
-          return videoAnalysis;
-        }
-
-        const geocoded: LocationMention[] = [];
-        for (const location of resolved) {
-          const geocode = await resolveCoordinates({
-            name: location.name,
-            googleApiKey,
-          });
-          geocoded.push({
-            name: location.name,
-            coordinates: geocode?.coordinates ?? null,
-          });
-        }
-        videoAnalysis.locations = geocoded;
-
-        const sql = getSqlClient(databaseUrl);
-        const existingPlaces = await getPlaceNames(sql);
-        const canonicalNames = await canonicalizePlaces(geocoded, videoAnalysis.summary, existingPlaces, {
-          apiKey,
->>>>>>> Stashed changes
         });
       });
 
