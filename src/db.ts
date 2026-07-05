@@ -2,6 +2,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { isWithinElSalvador } from "./geocode";
 import * as schema from "./schema";
+import { isDuplicateCandidate, normalizeBaseName, type MatchablePlace } from "./place-matching";
 import type { Coordinates, RawApifyItem, VideoAnalysis } from "./types";
 
 export type Sql = NeonQueryFunction<false, false>;
@@ -59,6 +60,76 @@ export async function findPlaceByGoogleId(
     SELECT id, canonical_name FROM places WHERE google_place_id = ${googlePlaceId} LIMIT 1
   `) as Array<{ id: string; canonical_name: string }>;
   return rows[0] ? { id: rows[0].id, canonicalName: rows[0].canonical_name } : null;
+}
+
+export interface SimilarPlaceInput {
+  canonicalName: string;
+  lat: number | null;
+  lng: number | null;
+  municipality: string | null;
+  googlePlaceId?: string | null;
+}
+
+export async function findSimilarPlace(sql: Sql, input: SimilarPlaceInput): Promise<{ id: string } | null> {
+  const baseName = normalizeBaseName(input.canonicalName);
+  if (!baseName) {
+    return null;
+  }
+
+  const firstToken = baseName.split(" ")[0] ?? baseName;
+  const namePattern = `%${firstToken}%`;
+
+  const rows = (await sql`
+    SELECT
+      id,
+      canonical_name,
+      lat,
+      lng,
+      municipality,
+      google_place_id,
+      mention_count
+    FROM places
+    WHERE verification_status != 'rejected'
+      AND (
+        (${input.googlePlaceId ?? null}::text IS NOT NULL AND google_place_id = ${input.googlePlaceId ?? null})
+        OR canonical_name ILIKE ${namePattern}
+        OR (${input.municipality ?? null}::text IS NOT NULL AND municipality = ${input.municipality ?? null})
+      )
+    ORDER BY mention_count DESC, updated_at DESC
+    LIMIT 500
+  `) as Array<{
+    id: string;
+    canonical_name: string;
+    lat: number | null;
+    lng: number | null;
+    municipality: string | null;
+    google_place_id: string | null;
+    mention_count: number;
+  }>;
+
+  const incoming: MatchablePlace = {
+    canonicalName: input.canonicalName,
+    lat: input.lat,
+    lng: input.lng,
+    municipality: input.municipality,
+    googlePlaceId: input.googlePlaceId,
+  };
+
+  for (const row of rows) {
+    const existing: MatchablePlace = {
+      id: row.id,
+      canonicalName: row.canonical_name,
+      lat: row.lat,
+      lng: row.lng,
+      municipality: row.municipality,
+      googlePlaceId: row.google_place_id,
+    };
+    if (isDuplicateCandidate(incoming, existing)) {
+      return { id: row.id };
+    }
+  }
+
+  return null;
 }
 
 export async function countDistinctSources(sql: Sql, placeId: string): Promise<number> {

@@ -1,6 +1,8 @@
 import {
   countDistinctSources,
+  findPlaceByCanonicalName,
   findPlaceByGoogleId,
+  findSimilarPlace,
   getPlaceWithMentions,
   type PlaceWithMentions,
   type Sql,
@@ -77,6 +79,22 @@ async function resolvePlaceId(
   const lng = input.coordinates?.lng ?? input.googlePlace?.lng ?? null;
   const coords = lat !== null && lng !== null ? { lat, lng } : null;
   const suspicious = !isWithinElSalvador(coords) || input.verifyResult.status === "rejected";
+
+  const byCanonicalName = await findPlaceByCanonicalName(sql, input.canonicalName);
+  if (byCanonicalName) {
+    return { placeId: byCanonicalName.id, isNew: false };
+  }
+
+  const similar = await findSimilarPlace(sql, {
+    canonicalName: input.canonicalName,
+    lat,
+    lng,
+    municipality: input.geocode?.municipality ?? null,
+    googlePlaceId: input.verifyResult.googlePlaceId,
+  });
+  if (similar) {
+    return { placeId: similar.id, isNew: false };
+  }
 
   const inserted = (await sql`
     INSERT INTO places (
