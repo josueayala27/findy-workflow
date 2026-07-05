@@ -47,7 +47,7 @@ const ANALYSIS_SCHEMA = {
     },
     summary: {
       type: Type.STRING,
-      description: "One or two sentence summary of what the video is about.",
+      description: "One or two sentence summary of what the video is about, written in Spanish.",
     },
   },
   required: ["sentiment", "sentimentScore", "transcription", "locations", "summary"],
@@ -100,6 +100,7 @@ export async function analyzeVideo(
     "Analyze this TikTok video about El Salvador.",
     "The spoken audio is likely in Spanish.",
     "Return only the requested structured fields based on what you see and hear in the video.",
+    "Write the summary field in Spanish.",
   ].join(" ");
 
   const response = await ai.models.generateContent({
