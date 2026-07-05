@@ -21,7 +21,8 @@ function parseArgs(): { query: string; category: Category; maxUrls: number } {
   const maxUrls =
     maxUrlsFlagIndex >= 0 ? Number.parseInt(args[maxUrlsFlagIndex + 1] ?? "3", 10) : 3;
   const positional = args.filter((_, i) => i !== maxUrlsFlagIndex && i !== maxUrlsFlagIndex + 1);
-  const [query, category] = positional;
+  const category = positional.at(-1);
+  const query = positional.slice(0, -1).join(" ");
 
   if (!query || !category) {
     console.error(

@@ -1,4 +1,4 @@
-const FIRECRAWL_EXTRACT_URL = "https://api.firecrawl.dev/v2/extract";
+const FIRECRAWL_SCRAPE_URL = "https://api.firecrawl.dev/v2/scrape";
 
 export interface WebExtractedPlace {
   name: string;
@@ -44,33 +44,41 @@ export async function extractPlaces(
   url: string,
   options: ExtractPlacesOptions,
 ): Promise<WebExtractedPlace[]> {
-  const response = await fetch(FIRECRAWL_EXTRACT_URL, {
+  const response = await fetch(FIRECRAWL_SCRAPE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${options.apiKey}`,
     },
     body: JSON.stringify({
-      urls: [url],
-      prompt:
-        "Extract all real-world places in El Salvador mentioned in this page. " +
-        "For each place include the exact evidence quote that mentions its location. " +
-        "Do not invent places not mentioned in the text.",
-      schema: EXTRACT_SCHEMA,
+      url,
+      formats: [
+        {
+          type: "json",
+          prompt:
+            "Extract all real-world places in El Salvador mentioned in this page. " +
+            "For each place include the exact evidence quote that mentions its location. " +
+            "Do not invent places not mentioned in the text.",
+          schema: EXTRACT_SCHEMA,
+        },
+      ],
     }),
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`Firecrawl extract failed (${response.status}): ${detail.slice(0, 300)}`);
+    throw new Error(`Firecrawl scrape failed (${response.status}): ${detail.slice(0, 300)}`);
   }
 
   const data = (await response.json()) as {
     success?: boolean;
-    data?: { places?: WebExtractedPlace[] };
-    places?: WebExtractedPlace[];
+    data?: { json?: { places?: WebExtractedPlace[] } };
   };
 
-  const places = data.data?.places ?? data.places ?? [];
+  if (!data.success) {
+    throw new Error("Firecrawl scrape returned success=false");
+  }
+
+  const places = data.data?.json?.places ?? [];
   return places.filter((p) => p.name && p.evidence);
 }

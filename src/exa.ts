@@ -1,4 +1,6 @@
 const EXA_SEARCH_URL = "https://api.exa.ai/search";
+/** Exa free/starter plans cap results per request (typically 100). */
+const EXA_MAX_NUM_RESULTS = 100;
 
 export interface ExaSearchResult {
   url: string;
@@ -30,7 +32,7 @@ export async function discoverUrls(
     body: JSON.stringify({
       query: `${input.query} El Salvador blog guía reseña`,
       type: "auto",
-      numResults: input.maxUrls * 2,
+      numResults: Math.min(input.maxUrls * 2, EXA_MAX_NUM_RESULTS),
       useAutoprompt: true,
       contents: {
         text: false,

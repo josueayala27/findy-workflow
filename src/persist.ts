@@ -7,7 +7,7 @@ import {
 } from "./db";
 import { isWithinElSalvador, type GeocodeResult } from "./geocode";
 import type { GooglePlaceResult } from "./google-places";
-import { buildSearchDoc, upsertSearchDoc } from "./search";
+import { buildSearchDoc, upsertSearchDocSafe } from "./search";
 import type { VerifyResult } from "./verify";
 import type { Coordinates } from "./types";
 
@@ -223,7 +223,7 @@ export async function persistAndIndexPlace(
     return null;
   }
 
-  await upsertSearchDoc(buildSearchDoc(place));
+  await upsertSearchDocSafe(buildSearchDoc(place));
   return placeId;
 }
 
@@ -253,5 +253,5 @@ export async function indexPlaceIfNotRejected(
   if (place.verificationStatus === "rejected") {
     return;
   }
-  await upsertSearchDoc(buildSearchDoc(place));
+  await upsertSearchDocSafe(buildSearchDoc(place));
 }
