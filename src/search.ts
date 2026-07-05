@@ -1,6 +1,7 @@
 import type { PlaceWithMentions } from "./db";
 
 const SEARCH_UPSERT_URL = "https://search.findy.place/upsert";
+const SEARCH_DELETE_URL = "https://search.findy.place/delete";
 const DEFAULT_INDEX = "places";
 const MAX_TEXT_FIELD = 400;
 const MAX_SUMMARIES = 5;
@@ -71,6 +72,31 @@ export async function upsertSearchDocSafe(input: SearchUpsertInput): Promise<boo
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[search] skipped index for ${input.id}: ${message}`);
+    return false;
+  }
+}
+
+export async function deleteSearchDoc(id: string, index = DEFAULT_INDEX): Promise<void> {
+  const response = await fetch(SEARCH_DELETE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ index, id }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new SearchError(`Search delete failed (${response.status}): ${detail.slice(0, 500)}`, response.status);
+  }
+}
+
+/** Best-effort index delete — DB merge already succeeded; search failures are logged, not thrown. */
+export async function deleteSearchDocSafe(id: string, index = DEFAULT_INDEX): Promise<boolean> {
+  try {
+    await deleteSearchDoc(id, index);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[search] skipped delete for ${id}: ${message}`);
     return false;
   }
 }

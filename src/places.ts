@@ -1,5 +1,6 @@
 import type { ExistingPlace, PlaceRow } from "./db";
 import { createLlmClient, generateJson } from "./llm";
+import { isDuplicateCandidate } from "./place-matching";
 import type { LocationMention, PlaceSummary, VideoAnalysis } from "./types";
 
 const LIKE_WEIGHT = 1;
@@ -58,6 +59,7 @@ export async function canonicalizePlaces(
     "Here is a list of places already known from other videos:",
     JSON.stringify(existingPlaces.map((place) => ({ name: place.name, lat: place.lat, lng: place.lng }))),
     "For each mentioned place, in the same order, decide whether it is the same real-world place as one already in the known list, or as another place mentioned earlier in this same list (accounting for spelling, phrasing, or language differences), or if it's a new distinct place.",
+    "If a mentioned place differs from a known place only by a city or region suffix, such as 'X' versus 'X, San Salvador', return the known place name exactly.",
   ].join("\n");
 
   const parsed = await generateJson<Array<{ matchedExistingName: string | null; canonicalName: string }>>(
@@ -79,10 +81,51 @@ function weightedEngagement(row: PlaceRow): number {
   );
 }
 
-export function computeScores(rows: PlaceRow[]): PlaceSummary[] {
-  const maxWeighted = Math.max(1, ...rows.map(weightedEngagement));
-
+function chooseDisplayRow(rows: PlaceRow[]): PlaceRow {
   return rows
+    .slice()
+    .sort((a, b) => {
+      if (a.googlePlaceId && !b.googlePlaceId) return -1;
+      if (!a.googlePlaceId && b.googlePlaceId) return 1;
+      if ((b.canonicalName?.length ?? 0) !== (a.canonicalName?.length ?? 0)) {
+        return b.canonicalName.length - a.canonicalName.length;
+      }
+      return b.mentionCount - a.mentionCount;
+    })[0];
+}
+
+export function deduplicatePlaceRows(rows: PlaceRow[]): PlaceRow[] {
+  const groups: PlaceRow[][] = [];
+
+  for (const row of rows) {
+    const group = groups.find((existing) => existing.some((candidate) => isDuplicateCandidate(row, candidate)));
+    if (group) {
+      group.push(row);
+    } else {
+      groups.push([row]);
+    }
+  }
+
+  return groups.map((group) => {
+    const display = chooseDisplayRow(group);
+    return {
+      ...display,
+      mentionCount: group.reduce((sum, row) => sum + Number(row.mentionCount), 0),
+      totalLikes: group.reduce((sum, row) => sum + Number(row.totalLikes), 0),
+      totalComments: group.reduce((sum, row) => sum + Number(row.totalComments), 0),
+      totalShares: group.reduce((sum, row) => sum + Number(row.totalShares), 0),
+      totalBookmarks: group.reduce((sum, row) => sum + Number(row.totalBookmarks), 0),
+      sentiments: group.flatMap((row) => row.sentiments),
+      suspicious: group.every((row) => row.suspicious),
+    };
+  });
+}
+
+export function computeScores(rows: PlaceRow[]): PlaceSummary[] {
+  const dedupedRows = deduplicatePlaceRows(rows);
+  const maxWeighted = Math.max(1, ...dedupedRows.map(weightedEngagement));
+
+  return dedupedRows
     .map((row) => ({
       placeId: row.id,
       name: row.canonicalName,
