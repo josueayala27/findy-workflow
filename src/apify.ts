@@ -4,7 +4,7 @@ const APIFY_BASE = "https://api.apify.com/v2";
 
 const DEFAULT_ACTOR = "apidojo/tiktok-scraper";
 const DEFAULT_LOCATION = "SV";
-const DEFAULT_RESULTS_LIMIT = 50;
+const DEFAULT_RESULTS_LIMIT = 25;
 const IDENTITY_MAP_FUNCTION = "(object) => { return {...object} }";
 
 export interface ApifyScrapeOptions {
